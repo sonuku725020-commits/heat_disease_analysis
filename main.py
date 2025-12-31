@@ -5,7 +5,7 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 from typing import Optional, List
 import joblib
 import numpy as np
@@ -67,8 +67,8 @@ class PatientData(BaseModel):
     NumVesselsFluro: int = Field(..., ge=0, le=4, description="Number of Vessels (Fluoroscopy)")
     Thallium: int = Field(..., ge=0, le=3, description="Thallium Test Result")
 
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "Age": 55,
                 "Sex": 1,
@@ -85,6 +85,7 @@ class PatientData(BaseModel):
                 "Thallium": 2
             }
         }
+    )
 
 class PredictionResponse(BaseModel):
     prediction: str
