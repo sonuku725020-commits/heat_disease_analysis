@@ -3,11 +3,11 @@
 # ============================================
 
 import streamlit as st
-import requests
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
-import os
+import joblib
+import numpy as np
 
 # ============================================
 # Page Configuration
@@ -19,6 +19,21 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded"
 )
+
+# ============================================
+# Load Model & Artifacts
+# ============================================
+
+try:
+    model = joblib.load('churn_model.pkl')
+    scaler = joblib.load('scaler.pkl')
+    feature_names = joblib.load('feature_names.pkl')
+    print("Model and artifacts loaded successfully!")
+except Exception as e:
+    print(f"Error loading model: {e}")
+    model = None
+    scaler = None
+    feature_names = None
 
 # ============================================
 # Custom CSS
@@ -77,11 +92,6 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# ============================================
-# API Configuration (Using Environment Variable)
-# ============================================
-
-API_URL = os.getenv("API_URL", "http://localhost:8000")
 
 # ============================================
 # Session State Initialization
@@ -94,49 +104,10 @@ if 'prediction_history' not in st.session_state:
 # Helper Functions
 # ============================================
 
-def check_api_health():
-    """Check if API is running"""
-    try:
-        response = requests.get(f"{API_URL}/health", timeout=5)
-        return response.status_code == 200
-    except requests.exceptions.Timeout:
-        return False
-    except requests.exceptions.ConnectionError:
-        return False
-    except requests.exceptions.RequestException:
-        return False
 
 
-def make_prediction(data):
-    """Send prediction request to API"""
-    try:
-        response = requests.post(
-            f"{API_URL}/predict",
-            json=data,
-            timeout=10
-        )
-        if response.status_code == 200:
-            return response.json()
-        else:
-            st.error(f"API returned status code: {response.status_code}")
-            return None
-    except requests.exceptions.Timeout:
-        st.error("⏱️ Request timed out. Please try again.")
-        return None
-    except requests.exceptions.ConnectionError:
-        st.error("🔌 Cannot connect to API. Is the server running?")
-        return None
-    except requests.exceptions.RequestException as e:
-        st.error(f"API Error: {e}")
-        return None
 
 
-def validate_api_response(result):
-    """Validate that API response has all required keys"""
-    required_keys = ['prediction', 'risk_level', 'probability', 'confidence', 'recommendations']
-    if result is None:
-        return False
-    return all(key in result for key in required_keys)
 
 
 def create_gauge_chart(probability):
@@ -179,20 +150,95 @@ def create_gauge_chart(probability):
 def validate_input_values(age, bp, cholesterol, max_hr):
     """Validate input values and return warnings"""
     warnings = []
-    
+
     if age < 18 or age > 100:
         warnings.append(f"⚠️ Age ({age}) seems unusual. Typical range: 18-100 years.")
-    
+
     if bp < 80 or bp > 200:
         warnings.append(f"⚠️ Blood Pressure ({bp} mmHg) seems unusual. Typical range: 80-200 mmHg.")
-    
+
     if cholesterol < 120 or cholesterol > 400:
         warnings.append(f"⚠️ Cholesterol ({cholesterol} mg/dL) seems unusual. Typical range: 120-400 mg/dL.")
-    
+
     if max_hr < 60 or max_hr > 220:
         warnings.append(f"⚠️ Max Heart Rate ({max_hr}) seems unusual. Typical range: 60-220 bpm.")
-    
+
     return warnings
+
+
+def preprocess_input(data: dict) -> np.ndarray:
+    """Preprocess input data for prediction"""
+
+    # Create DataFrame
+    input_dict = {
+        'Age': data['Age'],
+        'Sex': data['Sex'],
+        'Chest pain type': data['ChestPainType'],
+        'BP': data['BP'],
+        'Cholesterol': data['Cholesterol'],
+        'FBS over 120': data['FBSOver120'],
+        'EKG results': data['EKGResults'],
+        'Max HR': data['MaxHR'],
+        'Exercise angina': data['ExerciseAngina'],
+        'ST depression': data['STDepression'],
+        'Slope of ST': data['SlopeOfST'],
+        'Number of vessels fluro': data['NumVesselsFluro'],
+        'Thallium': data['Thallium']
+    }
+
+    df = pd.DataFrame([input_dict])
+
+    # Feature Engineering (same as training)
+    df['Age_Group'] = pd.cut(df['Age'], bins=[0, 30, 45, 60, 100], labels=[0, 1, 2, 3]).astype(int)
+    df['BP_Category'] = pd.cut(df['BP'], bins=[0, 120, 140, 200], labels=[0, 1, 2]).astype(int)
+    df['Chol_Risk'] = (df['Cholesterol'] > 200).astype(int)
+    df['HR_Risk'] = (df['Max HR'] < 100).astype(int)
+
+    # Ensure correct column order
+    df = df.reindex(columns=feature_names, fill_value=0)
+
+    # Scale features
+    scaled_data = scaler.transform(df)
+
+    return scaled_data
+
+
+def get_risk_level(probability: float) -> str:
+    """Determine risk level based on probability"""
+    if probability < 0.3:
+        return "Low Risk"
+    elif probability < 0.6:
+        return "Medium Risk"
+    else:
+        return "High Risk"
+
+
+def get_recommendations(probability: float, data: dict) -> list:
+    """Generate personalized recommendations"""
+    recommendations = []
+
+    if probability > 0.5:
+        recommendations.append("🏥 Schedule an appointment with a cardiologist immediately")
+
+    if data['Cholesterol'] > 200:
+        recommendations.append("🥗 Reduce cholesterol intake - follow a heart-healthy diet")
+
+    if data['BP'] > 140:
+        recommendations.append("💊 Monitor blood pressure regularly and consult doctor")
+
+    if data['MaxHR'] < 100:
+        recommendations.append("🏃 Increase physical activity with doctor's approval")
+
+    if data['FBSOver120'] == 1:
+        recommendations.append("🍬 Control blood sugar levels - consider diabetic screening")
+
+    if data['Age'] > 50:
+        recommendations.append("📅 Regular annual health checkups recommended")
+
+    if len(recommendations) == 0:
+        recommendations.append("✅ Maintain healthy lifestyle and regular checkups")
+
+    return recommendations
 
 # ============================================
 # Sidebar
@@ -203,14 +249,6 @@ with st.sidebar:
     st.markdown("# ❤️")
     st.markdown("## HeartPredict")
     st.markdown("---")
-    
-    # API Status
-    api_status = check_api_health()
-    if api_status:
-        st.success("🟢 API Connected")
-    else:
-        st.error("🔴 API Disconnected")
-        st.caption(f"Trying: {API_URL}")
     
     st.markdown("---")
     
@@ -350,10 +388,9 @@ elif page == "🔮 Prediction":
     
     # Predict Button
     if st.button("🔮 Predict Risk", use_container_width=True):
-        
-        # Check API connection first
-        if not check_api_health():
-            st.error("❌ Cannot connect to API. Please ensure the backend server is running.")
+
+        if model is None:
+            st.error("❌ Model not loaded. Please check model files.")
         else:
             # Prepare data
             input_data = {
@@ -371,67 +408,59 @@ elif page == "🔮 Prediction":
                 "NumVesselsFluro": vessels,
                 "Thallium": thallium_encoded
             }
-            
+
             with st.spinner("Analyzing..."):
-                result = make_prediction(input_data)
-            
-            # Validate response
-            if result and validate_api_response(result):
-                st.markdown("---")
-                st.markdown("## 📊 Prediction Results")
-                
-                col1, col2 = st.columns(2)
-                
-                with col1:
-                    # Risk Level Box
-                    risk_level = result.get('risk_level', 'Unknown')
-                    prediction = result.get('prediction', 'Unknown')
-                    probability = result.get('probability', 0)
-                    confidence = result.get('confidence', 0)
-                    
-                    if "Low" in risk_level:
-                        risk_class = "low-risk"
-                        emoji = "✅"
-                    elif "Medium" in risk_level:
-                        risk_class = "medium-risk"
-                        emoji = "⚠️"
-                    else:
-                        risk_class = "high-risk"
-                        emoji = "🚨"
-                    
-                    st.markdown(f"""
-                    <div class="prediction-box {risk_class}">
-                        <h2>{emoji} {prediction}</h2>
-                        <h3>{risk_level}</h3>
-                        <p>Probability: {probability*100:.1f}%</p>
-                        <p>Confidence: {confidence*100:.1f}%</p>
-                    </div>
-                    """, unsafe_allow_html=True)
-                
-                with col2:
-                    # Gauge Chart
-                    fig = create_gauge_chart(probability)
-                    st.plotly_chart(fig, use_container_width=True)
-                
-                # Recommendations
-                recommendations = result.get('recommendations', [])
-                if recommendations:
-                    st.markdown("### 💡 Recommendations")
-                    for rec in recommendations:
-                        st.info(rec)
-                
-                # Save to history
-                st.session_state.prediction_history.append({
-                    'age': age,
-                    'risk_level': risk_level,
-                    'probability': probability
-                })
-                
-            elif result:
-                st.error("❌ Received invalid response format from API.")
-                st.json(result)  # Show what was received for debugging
-            else:
-                st.error("❌ Failed to get prediction. Please check API connection.")
+                processed_data = preprocess_input(input_data)
+                prediction_num = model.predict(processed_data)[0]
+                probability = model.predict_proba(processed_data)[0][1]
+                prediction = "Heart Disease Detected" if prediction_num == 1 else "No Heart Disease"
+                risk_level = get_risk_level(probability)
+                recommendations = get_recommendations(probability, input_data)
+                confidence = max(probability, 1 - probability)
+
+            st.markdown("---")
+            st.markdown("## 📊 Prediction Results")
+
+            col1, col2 = st.columns(2)
+
+            with col1:
+                # Risk Level Box
+                if "Low" in risk_level:
+                    risk_class = "low-risk"
+                    emoji = "✅"
+                elif "Medium" in risk_level:
+                    risk_class = "medium-risk"
+                    emoji = "⚠️"
+                else:
+                    risk_class = "high-risk"
+                    emoji = "🚨"
+
+                st.markdown(f"""
+                <div class="prediction-box {risk_class}">
+                    <h2>{emoji} {prediction}</h2>
+                    <h3>{risk_level}</h3>
+                    <p>Probability: {probability*100:.1f}%</p>
+                    <p>Confidence: {confidence*100:.1f}%</p>
+                </div>
+                """, unsafe_allow_html=True)
+
+            with col2:
+                # Gauge Chart
+                fig = create_gauge_chart(probability)
+                st.plotly_chart(fig, use_container_width=True)
+
+            # Recommendations
+            if recommendations:
+                st.markdown("### 💡 Recommendations")
+                for rec in recommendations:
+                    st.info(rec)
+
+            # Save to history
+            st.session_state.prediction_history.append({
+                'age': age,
+                'risk_level': risk_level,
+                'probability': probability
+            })
 
 elif page == "📊 Analytics":
     # Analytics Page
