@@ -13,9 +13,9 @@ logger = logging.getLogger("HeartPredict")
 
 # Load model and preprocessing
 try:
-    model = joblib.load('Heart_Disease/churn_model.pkl')
-    scaler = joblib.load('Heart_Disease/scaler.pkl')
-    feature_names = joblib.load('Heart_Disease/feature_names.pkl')
+    model = joblib.load('churn_model.pkl')
+    scaler = joblib.load('scaler.pkl')
+    feature_names = joblib.load('feature_names.pkl')
     logger.info("🚀 Starting HeartPredict AI...")
     logger.info("✅ Model and scaler loaded successfully")
 except Exception as e:
