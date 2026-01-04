@@ -1,0 +1,15 @@
+services:
+  api:
+    image: sonuapp/heart-disease-api:latest
+    ports:
+      - "8000:8000"
+
+  streamlit:
+    image: sonuapp/heart-disease-streamlit:latest
+    ports:
+      - "8501:8501"
+    environment:
+      API_URL: http://api:8000/api/v1/predict
+      HEALTH_URL: http://api:8000/health
+    depends_on:
+      - api

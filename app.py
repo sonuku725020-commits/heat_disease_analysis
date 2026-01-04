@@ -1,8 +1,9 @@
 import streamlit as st
 import requests
+import os
 
-API_URL = "http://localhost:8000/api/v1/predict"
-HEALTH_URL = "http://localhost:8000/health"
+API_URL = os.getenv("API_URL", "http://localhost:8000/api/v1/predict")
+HEALTH_URL = os.getenv("HEALTH_URL", "http://localhost:8000/health")
 
 st.title("HeartPredict – Minimal Demo")
 

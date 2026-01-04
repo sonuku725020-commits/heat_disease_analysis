@@ -8,22 +8,27 @@ import numpy as np
 app = FastAPI()
 
 # Setup logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s | %(levelname)s | %(name)s | %(message)s')
+logging.basicConfig(level=logging.INFO, format='%(asctime)s | %(levelname)s | %(message)s')
 logger = logging.getLogger("HeartPredict")
 
-# Load model and preprocessing
-try:
-    model = joblib.load('Heart_Disease/churn_model.pkl')
-    scaler = joblib.load('Heart_Disease/scaler.pkl')
-    feature_names = joblib.load('Heart_Disease/feature_names.pkl')
-    logger.info("🚀 Starting HeartPredict AI...")
-    logger.info("✅ Model and scaler loaded successfully")
-except Exception as e:
-    logger.error(f"❌ Model loading failed: {e}")
-    logger.warning("⚠️ Application started without model")
-    model = None
-    scaler = None
-    feature_names = None
+# Global variables for model
+model = None
+scaler = None
+loaded = False
+
+def load_models():
+    global model, scaler, loaded
+    if loaded:
+        return
+    try:
+        model = joblib.load('churn_model.pkl')
+        scaler = joblib.load('scaler.pkl')
+        logger.info("✅ Model and scaler loaded successfully")
+        loaded = True
+    except Exception as e:
+        logger.error(f"❌ Model loading failed: {e}")
+        model = None
+        scaler = None
 
 def compute_age_group(age):
     if age < 40:
